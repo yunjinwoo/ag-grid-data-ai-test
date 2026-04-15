@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm --version)",
+      "Bash(docker --version)",
+      "Bash(redis-cli --version)",
+      "Bash(psql --version)",
+      "Bash(pg_isready)",
+      "Bash(npm install *)",
+      "Bash(npm run *)"
+    ]
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "name": "ag-grid-data-revision-system",
+  "version": "1.0.0",
+  "description": "Multi-agent based revision processing system",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/main.js",
+    "dev": "ts-node src/main.ts",
+    "demo": "ts-node src/main.ts"
+  },
+  "dependencies": {
+    "sql.js": "^1.12.0"
+  },
+  "devDependencies": {
+    "@types/sql.js": "^1.4.9",
+    "@types/node": "^20.11.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  }
+}
