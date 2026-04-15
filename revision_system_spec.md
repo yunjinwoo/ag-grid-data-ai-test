@@ -10,30 +10,35 @@
 - 역할: 모든 데이터 행의 버전별 실제 값을 저장.
 - 특이사항: 동일 데이터는 중복 저장하지 않으며, 수정 시 신규 Row를 생성한다(Append-only).
 - 컬럼:
-    - `id`: PK (BigInt/Identity)
-    - `master_id`: 원본 비즈니스 키 (예: 상품코드)
-    - `hash_value`: 내용 변경 감지용 Hash (예: SHA-256)
-    - `payload`: 실제 데이터 (JSON/JSONB 타입 - 필드 확장성 대응)
+    - id: PK (BigInt/Identity)
+    - master_id: 원본 비즈니스 키 (예: 상품코드)
+    - hash_value: 내용 변경 감지용 Hash (예: SHA-256)
+    - payload: 실제 데이터 (JSON/JSONB 타입 - 필드 확장성 대응)
 
 ### B. revision_master (리비전 메타데이터)
-- 역할: 리비전 그 자체에 대한 정보 관리.
-- 컬럼: `rev_id` (PK), `memo`, `created_by`, `created_at`
+- 역할: 리비전 그 자체에 대한 정보 관리 및 프로세스 상태 추적.
+- 컬럼: 
+    - rev_id: PK
+    - memo, created_by, created_at
+    - status: 진행 상태 (PENDING, PROCESSING, COMPLETED, FAILED)
+    - total_chunks: 전체 작업 단위 수
+    - processed_chunks: 완료된 작업 단위 수
 
 ### C. revision_snapshot (매핑 테이블)
-- 역할: 특정 리비전에 포함되는 모든 `data_id` 리스트를 정의.
+- 역할: 특정 리비전에 포함되는 모든 data_id 리스트를 정의.
 - 컬럼:
-    - `rev_id`: FK (revision_master)
-    - `data_id`: FK (data_pool)
+    - rev_id: FK (revision_master)
+    - data_id: FK (data_pool)
     - *복합 PK 설정: (rev_id, data_id)*
 
 ## 3. 핵심 비즈니스 로직 (Core Logic)
 
 ### [Scenario: 리비전 생성 프로세스]
-1. **데이터 비교**: 입력된 30만 건의 행 각각에 대해 `hash_value`를 계산.
-2. **선택적 삽입**: `hash_value`가 기존 `data_pool`에 없는 경우에만 `data_pool`에 `INSERT`.
-3. **스냅샷 구성**:
-    - **Step 1 (기존 데이터 유지)**: 이전 리비전의 `data_id`들 중 수정되지 않은 행들의 ID를 새 리비전 번호로 복사 (`INSERT INTO ... SELECT`).
-    - **Step 2 (신규/수정 데이터 추가)**: 새로 `INSERT`된 `data_id`들을 새 리비전 번호로 매핑 추가.
+1. 데이터 비교: 입력된 30만 건의 행 각각에 대해 hash_value를 계산.
+2. 선택적 삽입: hash_value가 기존 data_pool에 없는 경우에만 data_pool에 INSERT.
+3. 스냅샷 구성:
+    - Step 1 (기존 데이터 유지): 이전 리비전의 data_id들 중 수정되지 않은 행들의 ID를 새 리비전 번호로 복사 (INSERT INTO ... SELECT).
+    - Step 2 (신규/수정 데이터 추가): 새로 INSERT된 data_id들을 새 리비전 번호로 매핑 추가.
 
 ### [Scenario: 특정 리비전 조회 (AG Grid 연동)]
 - 단일 JOIN 쿼리로 특정 시점의 전체 데이터(30만 건)를 즉시 추출.
@@ -41,3 +46,8 @@
 SELECT p.* FROM revision_snapshot s
 JOIN data_pool p ON s.data_id = p.id
 WHERE s.rev_id = :target_rev_id;
+```
+
+## 4. 멀티에이전트 협업 설계 (Multi-Agent Coordination)
+대용량 데이터 처리를 위해 다수의 에이전트가 병렬로 작업을 수행한다. 상세 설계는 다음 문서를 참조한다.
+- [멀티에이전트 리비전 시스템 설계 가이드](file:///d:/_JINWOO/antigravity/ag-grid-data/multi_agent_revision_design.md)
