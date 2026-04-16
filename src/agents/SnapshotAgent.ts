@@ -26,21 +26,39 @@ export class SnapshotAgent {
     );
   }
 
-  // 수정 리비전용: fromRevId에서 상속하되 수정된 master_id 제외
+  // 수정 리비전용: fromRevId에서 상속하되 수정된 master_id 제외 (배치 처리)
   inheritExcluding(revId: number, fromRevId: number, excludedMasterIds: string[]): number {
     if (excludedMasterIds.length === 0) {
       this.inheritUnchangedData(revId, fromRevId);
     } else {
+      const BATCH = 5_000;
       const ph = excludedMasterIds.map(() => '?').join(', ');
-      this.db.run(
-        `INSERT OR IGNORE INTO revision_snapshot (rev_id, data_id)
-         SELECT ?, s.data_id
-         FROM revision_snapshot s
-         JOIN data_pool p ON s.data_id = p.id
-         WHERE s.rev_id = ?
-           AND p.master_id NOT IN (${ph})`,
-        [revId, fromRevId, ...excludedMasterIds],
-      );
+      let offset = 0;
+
+      while (true) {
+        const rows = this.db.exec(
+          `SELECT s.data_id
+           FROM revision_snapshot s
+           JOIN data_pool p ON s.data_id = p.id
+           WHERE s.rev_id = ?
+             AND p.master_id NOT IN (${ph})
+           LIMIT ? OFFSET ?`,
+          [fromRevId, ...excludedMasterIds, BATCH, offset],
+        );
+        if (!rows.length || !rows[0].values.length) break;
+
+        this.db.run('BEGIN');
+        for (const [dataId] of rows[0].values) {
+          this.db.run(
+            `INSERT OR IGNORE INTO revision_snapshot (rev_id, data_id) VALUES (?, ?)`,
+            [revId, dataId],
+          );
+        }
+        this.db.run('COMMIT');
+
+        if (rows[0].values.length < BATCH) break;
+        offset += BATCH;
+      }
     }
     const res = this.db.exec(`SELECT COUNT(*) FROM revision_snapshot WHERE rev_id = ?`, [revId]);
     const total = res[0].values[0][0] as number;
@@ -49,15 +67,30 @@ export class SnapshotAgent {
     return inherited;
   }
 
-  // 이전 리비전에서 변경되지 않은 데이터를 현재 리비전으로 복사
+  // 이전 리비전에서 변경되지 않은 데이터를 현재 리비전으로 복사 (배치 처리)
   inheritUnchangedData(revId: number, prevRevId: number): void {
-    this.db.run(
-      `INSERT OR IGNORE INTO revision_snapshot (rev_id, data_id)
-       SELECT ?, data_id FROM revision_snapshot
-       WHERE rev_id = ?
-         AND data_id NOT IN (SELECT data_id FROM revision_snapshot WHERE rev_id = ?)`,
-      [revId, prevRevId, revId],
-    );
+    const BATCH = 5_000;
+    let offset = 0;
+
+    while (true) {
+      const rows = this.db.exec(
+        `SELECT data_id FROM revision_snapshot WHERE rev_id = ? LIMIT ? OFFSET ?`,
+        [prevRevId, BATCH, offset],
+      );
+      if (!rows.length || !rows[0].values.length) break;
+
+      this.db.run('BEGIN');
+      for (const [dataId] of rows[0].values) {
+        this.db.run(
+          `INSERT OR IGNORE INTO revision_snapshot (rev_id, data_id) VALUES (?, ?)`,
+          [revId, dataId],
+        );
+      }
+      this.db.run('COMMIT');
+
+      if (rows[0].values.length < BATCH) break;
+      offset += BATCH;
+    }
 
     const countRes = this.db.exec(
       `SELECT COUNT(*) FROM revision_snapshot WHERE rev_id = ?`,

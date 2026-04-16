@@ -3,7 +3,7 @@ import { DataRow, TaskMessage } from '../types';
 import { InMemoryQueue } from '../queue/InMemoryQueue';
 
 export class CoordinatorAgent {
-  private readonly CHUNK_SIZE = 10_000;
+  private readonly CHUNK_SIZE = 2_000;
 
   constructor(
     private readonly db: Database,

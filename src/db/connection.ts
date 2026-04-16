@@ -10,7 +10,12 @@ export const DB_PATH = path.join(__dirname, '../../revision.db');
 export async function getDb(): Promise<Database> {
   if (db) return db;
 
-  const SQL = await initSqlJs();
+  // WASM 힙 확장: 기본값이 너무 작아 300K+ 행에서 "memory access out of bounds" 크래시 발생
+  // 1 page = 64KB / initial: 2048 pages = 128MB / maximum: 16384 pages = 1GB
+  // sql.js 타입 정의에 wasmMemory 없으므로 as any 사용
+  const SQL = await initSqlJs({
+    wasmMemory: new WebAssembly.Memory({ initial: 2048, maximum: 16384 }),
+  } as any);
 
   if (fs.existsSync(DB_PATH)) {
     // 기존 파일이 있으면 로드
