@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>리비전 관리 시스템</title>
+  <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@31.3.2/dist/ag-grid-community.min.noStyle.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.3.2/styles/ag-grid.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.3.2/styles/ag-theme-alpine.css">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans KR', sans-serif;
+      height: 100vh; display: flex; flex-direction: column;
+      background: #f0f2f5; color: #1a202c;
+    }
+
+    /* Header */
+    header {
+      background: #1a1a2e; color: #fff;
+      padding: 0 20px; height: 50px;
+      display: flex; align-items: center; gap: 12px; flex-shrink: 0;
+    }
+    header h1 { font-size: 14px; font-weight: 700; flex: 1; }
+    header .sub { color: #718096; font-size: 12px; }
+    .btn-db {
+      padding: 5px 12px; background: #2d3a5a; color: #90cdf4;
+      border: 1px solid #4a6fa5; border-radius: 6px;
+      font-size: 12px; font-weight: 600; cursor: pointer;
+    }
+    .btn-db:hover { background: #3a4d70; }
+
+    /* Layout */
+    .layout { display: flex; flex: 1; overflow: hidden; }
+
+    /* Sidebar */
+    .sidebar {
+      width: 240px; background: #fff;
+      border-right: 1px solid #e2e8f0;
+      display: flex; flex-direction: column; flex-shrink: 0;
+    }
+    .sidebar-header {
+      padding: 13px 16px; font-size: 11px; font-weight: 700;
+      color: #a0aec0; text-transform: uppercase; letter-spacing: .08em;
+      border-bottom: 1px solid #f7fafc;
+    }
+    .revision-list { flex: 1; overflow-y: auto; }
+    .revision-item {
+      padding: 10px 16px; cursor: pointer;
+      border-bottom: 1px solid #f7fafc; transition: background .1s;
+    }
+    .revision-item:hover { background: #f7fafc; }
+    .revision-item.active { background: #ebf8ff; border-left: 3px solid #3182ce; padding-left: 13px; }
+    .rev-id   { font-size: 11px; color: #a0aec0; margin-bottom: 2px; }
+    .rev-memo { font-size: 13px; font-weight: 500; color: #2d3748; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .rev-meta { display: flex; align-items: center; gap: 6px; margin-top: 5px; flex-wrap: wrap; }
+    .badge { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 9999px; }
+    .badge-completed  { background: #c6f6d5; color: #276749; }
+    .badge-pending    { background: #fefcbf; color: #744210; }
+    .badge-failed     { background: #fed7d7; color: #822727; }
+    .badge-processing { background: #bee3f8; color: #2a4365; }
+    .rev-count { font-size: 11px; color: #718096; font-weight: 600; }
+    .btn-del-rev {
+      display: none; background: none; border: none;
+      color: #fc8181; cursor: pointer; font-size: 15px;
+      padding: 1px 5px; border-radius: 4px; line-height: 1; margin-left: auto;
+    }
+    .revision-item:hover .btn-del-rev { display: block; }
+    .btn-del-rev:hover { color: #e53e3e; background: #fff5f5; }
+
+    .sidebar-footer { padding: 12px; border-top: 1px solid #e2e8f0; }
+    .btn-create {
+      width: 100%; padding: 9px; background: #3182ce; color: #fff;
+      border: none; border-radius: 7px; font-size: 13px; font-weight: 600;
+      cursor: pointer; transition: background .15s;
+    }
+    .btn-create:hover:not(:disabled) { background: #2b6cb0; }
+    .btn-create:disabled { background: #a0aec0; cursor: not-allowed; }
+
+    /* Main */
+    .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+    .toolbar {
+      padding: 9px 18px; background: #fff;
+      border-bottom: 1px solid #e2e8f0;
+      display: flex; align-items: center; gap: 10px; flex-shrink: 0; flex-wrap: wrap;
+    }
+    .toolbar .title { font-size: 14px; font-weight: 700; color: #2d3748; }
+    .chip {
+      font-size: 11px; padding: 3px 9px; border-radius: 9999px; font-weight: 600;
+    }
+    .chip-total   { background: #e9d8fd; color: #553c9a; }
+    .chip-new     { background: #c6f6d5; color: #276749; }
+    .chip-inherit { background: #bee3f8; color: #2a4365; }
+    .spacer { flex: 1; }
+
+    .grid-wrap { flex: 1; padding: 12px 14px; overflow: hidden; }
+    .ag-theme-alpine { height: 100%; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+
+    .empty-state {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 10px; color: #cbd5e0;
+    }
+    .empty-state .icon { font-size: 52px; }
+    .empty-state p { font-size: 14px; color: #a0aec0; }
+
+    /* Modal base */
+    .overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,.45); z-index: 200;
+      align-items: center; justify-content: center;
+    }
+    .overlay.open { display: flex; }
+    .modal {
+      background: #fff; border-radius: 12px; padding: 26px;
+      box-shadow: 0 25px 60px rgba(0,0,0,.2); width: 420px; max-width: 95vw;
+    }
+    .modal h2 { font-size: 15px; font-weight: 700; margin-bottom: 18px; }
+    .form-row { margin-bottom: 14px; }
+    .form-row label { display: block; font-size: 12px; font-weight: 600; color: #4a5568; margin-bottom: 5px; }
+    .form-row input {
+      width: 100%; padding: 9px 11px;
+      border: 1.5px solid #e2e8f0; border-radius: 7px; font-size: 14px;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    .form-row input:focus { outline: none; border-color: #3182ce; box-shadow: 0 0 0 3px rgba(49,130,206,.15); }
+    .hint { font-size: 11px; color: #a0aec0; margin-top: 4px; line-height: 1.5; }
+    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 22px; }
+    .btn { padding: 9px 18px; border-radius: 7px; border: none; font-size: 13px; font-weight: 600; cursor: pointer; }
+    .btn-primary { background: #3182ce; color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: #2b6cb0; }
+    .btn-primary:disabled { background: #a0aec0; cursor: not-allowed; }
+    .btn-secondary { background: #edf2f7; color: #4a5568; }
+    .btn-secondary:hover { background: #e2e8f0; }
+
+    /* DB Viewer */
+    .db-modal { width: 820px; max-width: 95vw; max-height: 90vh; display: flex; flex-direction: column; }
+    .db-modal .modal-body { flex: 1; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
+    .table-tabs { display: flex; gap: 4px; margin-bottom: 12px; }
+    .tab-btn {
+      padding: 6px 14px; border-radius: 6px; border: 1.5px solid #e2e8f0;
+      font-size: 12px; font-weight: 600; cursor: pointer; background: #fff; color: #4a5568;
+      transition: all .15s;
+    }
+    .tab-btn.active { background: #3182ce; color: #fff; border-color: #3182ce; }
+    .stats-row { display: flex; gap: 10px; margin-bottom: 12px; }
+    .stat-card {
+      flex: 1; background: #f7fafc; border-radius: 8px; padding: 10px 14px;
+      border: 1px solid #e2e8f0;
+    }
+    .stat-card .label { font-size: 11px; color: #718096; font-weight: 600; text-transform: uppercase; }
+    .stat-card .value { font-size: 20px; font-weight: 700; color: #2d3748; margin-top: 2px; }
+    .db-grid-wrap { flex: 1; min-height: 0; }
+    .db-grid-wrap .ag-theme-alpine { height: 100%; border-radius: 6px; }
+    .pager { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 12px; color: #718096; }
+    .pager button {
+      padding: 4px 10px; border: 1px solid #e2e8f0; border-radius: 5px;
+      background: #fff; cursor: pointer; font-size: 12px;
+    }
+    .pager button:disabled { opacity: .4; cursor: not-allowed; }
+
+    /* Spinner */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner {
+      width: 13px; height: 13px;
+      border: 2px solid rgba(255,255,255,.4); border-top-color: #fff;
+      border-radius: 50%; animation: spin .5s linear infinite;
+      display: inline-block; vertical-align: middle; margin-right: 5px;
+    }
+
+    /* Skeleton */
+    .skeleton {
+      height: 13px;
+      background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+      background-size: 200% 100%; animation: shimmer 1.2s infinite;
+      border-radius: 4px; margin: 8px 16px;
+    }
+    @keyframes shimmer { to { background-position: -200% 0; } }
+  </style>
+</head>
+<body>
+
+<header>
+  <div style="width:7px;height:7px;background:#48bb78;border-radius:50%;"></div>
+  <h1>멀티에이전트 리비전 관리 시스템</h1>
+  <span class="sub">AG Grid 데모</span>
+  <button class="btn-db" id="btnDbViewer">🗄 DB 테이블 보기</button>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="sidebar-header">리비전 목록</div>
+    <div class="revision-list" id="revisionList">
+      <div class="skeleton" style="width:80%"></div>
+      <div class="skeleton" style="width:60%;margin-top:10px"></div>
+    </div>
+    <div class="sidebar-footer">
+      <button class="btn-create" id="btnCreate">+ 새 리비전 생성</button>
+    </div>
+  </aside>
+
+  <main class="main" id="mainArea">
+    <div class="empty-state">
+      <div class="icon">📋</div>
+      <p>좌측에서 리비전을 선택하세요</p>
+    </div>
+  </main>
+</div>
+
+<!-- 새 리비전 생성 Modal -->
+<div class="overlay" id="createOverlay">
+  <div class="modal">
+    <h2>새 리비전 생성</h2>
+    <div class="form-row">
+      <label>메모</label>
+      <input type="text" id="inputMemo" value="신규 상품 추가" placeholder="이 리비전 설명">
+    </div>
+    <div class="form-row">
+      <label>추가할 데이터 건수</label>
+      <input type="number" id="inputCount" value="500" min="10" max="100000" step="100">
+      <div class="hint">
+        이전 리비전의 모든 데이터는 자동 상속됩니다.<br>
+        여기서 입력한 건수만큼 신규 상품이 추가됩니다. (최대 100,000건)
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" id="btnCancelCreate">취소</button>
+      <button class="btn btn-primary" id="btnConfirmCreate">생성</button>
+    </div>
+  </div>
+</div>
+
+<!-- DB 뷰어 Modal -->
+<div class="overlay" id="dbOverlay">
+  <div class="modal db-modal">
+    <h2>🗄 DB 테이블 뷰어</h2>
+    <div class="stats-row" id="dbStats">
+      <div class="stat-card"><div class="label">로딩 중...</div></div>
+    </div>
+    <div class="table-tabs" id="tableTabs"></div>
+    <div class="modal-body">
+      <div class="db-grid-wrap">
+        <div id="dbGrid" class="ag-theme-alpine" style="height:340px;"></div>
+      </div>
+      <div class="pager">
+        <button id="dbPrevBtn">◀</button>
+        <span id="dbPagerInfo"></span>
+        <button id="dbNextBtn">▶</button>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCleanup"
+        style="background:#fff3cd;color:#856404;border:1px solid #ffc107;margin-right:auto;">
+        🧹 고아 데이터 정리
+      </button>
+      <span id="cleanupResult" style="font-size:12px;color:#718096;align-self:center;"></span>
+      <button class="btn btn-secondary" id="btnCloseDb">닫기</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── 상태 ──────────────────────────────────────────────────────────────────
+let gridApi    = null;
+let dbGridApi  = null;
+let selectedRevId = null;
+let pendingEdits  = new Map(); // master_id → 수정된 row 전체
+
+// DB 뷰어 상태
+let dbCurrentTable  = 'data_pool';
+let dbCurrentOffset = 0;
+const DB_PAGE_SIZE  = 100;
+
+// ── 리비전 그리드 컬럼 ────────────────────────────────────────────────────
+const revColDefs = [
+  {
+    headerCheckboxSelection: true, checkboxSelection: true,
+    width: 44, maxWidth: 44, pinned: 'left',
+    resizable: false, sortable: false, filter: false, suppressMenu: true,
+  },
+  { field: 'id',        headerName: 'ID',   width: 75,  type: 'numericColumn', pinned: 'left', cellStyle: { color: '#718096', fontSize: '12px' } },
+  { field: 'master_id', headerName: '상품코드', width: 145, pinned: 'left', cellStyle: { fontWeight: '500' } },
+  { field: 'name',      headerName: '상품명',  width: 160, editable: true },
+  {
+    field: 'category', headerName: '카테고리', width: 110,
+    cellRenderer: p => {
+      const c = { '전자': '#bee3f8', '의류': '#fbb6ce', '식품': '#c6f6d5', '가구': '#fefcbf' };
+      return `<span style="background:${c[p.value]||'#e2e8f0'};padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:600">${p.value||''}</span>`;
+    },
+  },
+  {
+    field: 'price', headerName: '가격', width: 125, type: 'numericColumn', editable: true,
+    valueFormatter: p => p.value != null ? p.value.toLocaleString() + '원' : '',
+  },
+  {
+    field: 'stock', headerName: '재고', width: 100, type: 'numericColumn', editable: true,
+    valueFormatter: p => p.value != null ? p.value.toLocaleString() + '개' : '',
+    cellStyle: p => p.value < 50 ? { color: '#e53e3e', fontWeight: '600' } : {},
+  },
+];
+
+// ── 사이드바 리비전 목록 ──────────────────────────────────────────────────
+async function loadRevisions() {
+  const list = await fetch('/api/revisions').then(r => r.json());
+  const container = document.getElementById('revisionList');
+
+  if (!list.length) {
+    container.innerHTML = '<div style="padding:20px;text-align:center;color:#a0aec0;font-size:13px">리비전 없음</div>';
+    return list;
+  }
+
+  container.innerHTML = list.map(r => `
+    <div class="revision-item ${r.rev_id === selectedRevId ? 'active' : ''}"
+         data-rev-id="${r.rev_id}"
+         data-memo="${(r.memo || '').replace(/"/g, '&quot;')}"
+         data-new-count="${r.new_count || 0}"
+         data-inherited-count="${r.inherited_count || 0}">
+      <div class="rev-id">REV #${r.rev_id} &middot; ${(r.created_at || '').slice(0, 16)}</div>
+      <div class="rev-memo">${r.memo || '—'}</div>
+      <div class="rev-meta">
+        <span class="badge badge-${(r.status || '').toLowerCase()}">${r.status}</span>
+        <span class="rev-count">총 ${(r.snapshot_count || 0).toLocaleString()}건</span>
+        <button class="btn-del-rev" data-del-rev="${r.rev_id}" title="리비전 삭제">✕</button>
+      </div>
+    </div>
+  `).join('');
+
+  container.onclick = async e => {
+    // 리비전 삭제 버튼
+    const delBtn = e.target.closest('.btn-del-rev');
+    if (delBtn) {
+      const revId = Number(delBtn.dataset.delRev);
+      if (!confirm(`REV #${revId} 을 삭제할까요?\n(data_pool은 유지됩니다)`)) return;
+      await fetch(`/api/revisions/${revId}`, { method: 'DELETE' });
+      if (selectedRevId === revId) {
+        selectedRevId = null;
+        document.getElementById('mainArea').innerHTML = `
+          <div class="empty-state"><div class="icon">📋</div><p>좌측에서 리비전을 선택하세요</p></div>`;
+      }
+      await loadRevisions();
+      return;
+    }
+    // 리비전 선택
+    const item = e.target.closest('.revision-item');
+    if (!item) return;
+    selectRevision(
+      Number(item.dataset.revId),
+      item.dataset.memo || '',
+      Number(item.dataset.newCount || 0),
+      Number(item.dataset.inheritedCount || 0),
+    );
+  };
+  return list;
+}
+
+// ── 리비전 선택 → 그리드 표시 ────────────────────────────────────────────
+async function selectRevision(revId, memo, newCount = 0, inheritedCount = 0) {
+  selectedRevId = revId;
+  if (gridApi) { gridApi.destroy(); gridApi = null; }
+
+  const newChip      = newCount      > 0 ? `<span class="chip chip-new">신규 ${newCount.toLocaleString()}건</span>`      : '';
+  const inheritChip  = inheritedCount > 0 ? `<span class="chip chip-inherit">상속 ${inheritedCount.toLocaleString()}건</span>` : '';
+
+  document.getElementById('mainArea').innerHTML = `
+    <div class="toolbar">
+      <span class="title">REV #${revId}</span>
+      <span style="color:#718096;font-size:13px;max-width:180px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${memo}</span>
+      <span class="chip chip-total" id="chipTotal">로딩 중...</span>
+      ${newChip}
+      ${inheritChip}
+      <span class="spacer"></span>
+      <span id="delRowBadge" style="display:none;background:#fff5f5;color:#c53030;font-size:11px;padding:3px 9px;border-radius:9999px;font-weight:700;"></span>
+      <button id="btnDeleteRows" style="display:none;padding:6px 14px;background:#e53e3e;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">
+        🗑 삭제 → 새 리비전
+      </button>
+      <span id="editBadge" style="display:none" class="chip" style="background:#fed7d7;color:#822727"></span>
+      <button id="btnSaveEdit" style="display:none;padding:6px 14px;background:#38a169;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">
+        💾 저장 → 새 리비전
+      </button>
+    </div>
+    <div class="grid-wrap">
+      <div id="myGrid" class="ag-theme-alpine"></div>
+    </div>
+  `;
+
+  pendingEdits.clear();
+
+  gridApi = agGrid.createGrid(document.getElementById('myGrid'), {
+    columnDefs: revColDefs,
+    rowData: [],
+    defaultColDef: { sortable: true, filter: true, resizable: true },
+    animateRows: true,
+    pagination: true,
+    paginationPageSize: 100,
+    onCellValueChanged: e => {
+      pendingEdits.set(e.data.master_id, { ...e.data });
+      updateEditBar();
+    },
+    onSelectionChanged: () => {
+      const n = gridApi ? gridApi.getSelectedRows().length : 0;
+      const badge = document.getElementById('delRowBadge');
+      const btn   = document.getElementById('btnDeleteRows');
+      if (!badge || !btn) return;
+      if (n === 0) { badge.style.display = 'none'; btn.style.display = 'none'; }
+      else { badge.textContent = `☑️ ${n.toLocaleString()}건 선택`; badge.style.display = ''; btn.style.display = ''; }
+    },
+  });
+
+  await loadRevisions();
+
+  const data = await fetch(`/api/revisions/${revId}/data`).then(r => r.json());
+  gridApi.setGridOption('rowData', data);
+  document.getElementById('chipTotal').textContent = `총 ${data.length.toLocaleString()}건`;
+}
+
+// ── 수정 배지 업데이트 ────────────────────────────────────────────────────
+function updateEditBar() {
+  const badge  = document.getElementById('editBadge');
+  const btn    = document.getElementById('btnSaveEdit');
+  if (!badge || !btn) return;
+  const count = pendingEdits.size;
+  if (count === 0) {
+    badge.style.display = 'none';
+    btn.style.display   = 'none';
+  } else {
+    badge.style.display      = '';
+    badge.style.background   = '#fed7d7';
+    badge.style.color        = '#822727';
+    badge.textContent        = `✏️ 수정 ${count}건`;
+    btn.style.display        = '';
+  }
+}
+
+// 행 삭제 버튼
+document.addEventListener('click', async e => {
+  if (!e.target.closest('#btnDeleteRows')) return;
+  const selected = gridApi ? gridApi.getSelectedRows() : [];
+  if (!selected.length) return;
+
+  const memo = prompt(
+    `선택한 ${selected.length}건을 삭제하고 새 리비전을 생성합니다.\n메모를 입력하세요:`,
+    `행 삭제 (${selected.length}건)`,
+  );
+  if (memo === null) return;
+
+  const btn = document.getElementById('btnDeleteRows');
+  btn.disabled = true; btn.textContent = '⏳ 처리 중...';
+
+  try {
+    const masterIds = selected.map(r => r.master_id);
+    const result = await fetch(`/api/revisions/${selectedRevId}/delete-rows`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ memo, masterIds }),
+    }).then(r => r.json());
+
+    await selectRevision(result.revId, memo, 0, result.inheritedCount);
+  } catch (err) {
+    alert('오류: ' + err.message);
+    btn.disabled = false; btn.textContent = '🗑 삭제 → 새 리비전';
+  }
+});
+
+// 저장 버튼 — 수정 내역을 서버로 전송하여 새 리비전 생성
+document.addEventListener('click', async e => {
+  if (!e.target.closest('#btnSaveEdit')) return;
+  if (pendingEdits.size === 0) return;
+
+  const memo = prompt(
+    `수정 ${pendingEdits.size}건을 새 리비전으로 저장합니다.\n메모를 입력하세요:`,
+    `상품 정보 수정 (${pendingEdits.size}건)`,
+  );
+  if (memo === null) return; // 취소
+
+  const btn = document.getElementById('btnSaveEdit');
+  btn.disabled  = true;
+  btn.textContent = '⏳ 처리 중...';
+
+  try {
+    const changes = Array.from(pendingEdits.values());
+    const result  = await fetch(`/api/revisions/${selectedRevId}/edit`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ memo, changes }),
+    }).then(r => r.json());
+
+    pendingEdits.clear();
+    await selectRevision(result.revId, memo, 0, result.inheritedCount);
+  } catch (err) {
+    alert('저장 오류: ' + err.message);
+    btn.disabled    = false;
+    btn.textContent = '💾 저장 → 새 리비전';
+  }
+});
+
+// ── 새 리비전 생성 ────────────────────────────────────────────────────────
+document.getElementById('btnCreate').onclick = () => {
+  document.getElementById('createOverlay').classList.add('open');
+  document.getElementById('inputMemo').focus();
+};
+document.getElementById('btnCancelCreate').onclick = () =>
+  document.getElementById('createOverlay').classList.remove('open');
+// mousedown 시작점도 오버레이여야 닫힘 (드래그 후 모달 닫힘 방지)
+let createMouseDownOnOverlay = false;
+document.getElementById('createOverlay').addEventListener('mousedown', e => {
+  createMouseDownOnOverlay = e.target === e.currentTarget;
+});
+document.getElementById('createOverlay').addEventListener('mouseup', e => {
+  if (createMouseDownOnOverlay && e.target === e.currentTarget)
+    document.getElementById('createOverlay').classList.remove('open');
+  createMouseDownOnOverlay = false;
+});
+
+document.getElementById('btnConfirmCreate').onclick = async () => {
+  const memo  = document.getElementById('inputMemo').value.trim() || '새 리비전';
+  const count = parseInt(document.getElementById('inputCount').value) || 100;
+  const btn   = document.getElementById('btnConfirmCreate');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>에이전트 처리 중...';
+
+  try {
+    const result = await fetch('/api/revisions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ memo, count }),
+    }).then(r => r.json());
+
+    document.getElementById('createOverlay').classList.remove('open');
+    await selectRevision(result.revId, memo, result.newCount, result.inheritedCount);
+  } catch (e) {
+    alert('오류: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '생성';
+  }
+};
+
+// ── DB 뷰어 ───────────────────────────────────────────────────────────────
+const TABLES = {
+  data_pool:          { label: 'data_pool', emoji: '💾' },
+  revision_master:    { label: 'revision_master', emoji: '📋' },
+  revision_snapshot:  { label: 'revision_snapshot', emoji: '🔗' },
+};
+
+async function openDbViewer() {
+  document.getElementById('dbOverlay').classList.add('open');
+  dbCurrentOffset = 0;
+
+  // 통계 카드
+  const stats = await fetch('/api/db/stats').then(r => r.json());
+  document.getElementById('dbStats').innerHTML = stats.map(s => `
+    <div class="stat-card">
+      <div class="label">${TABLES[s.table]?.emoji || ''} ${s.table}</div>
+      <div class="value">${Number(s.count).toLocaleString()}</div>
+    </div>
+  `).join('');
+
+  // 탭 버튼
+  document.getElementById('tableTabs').innerHTML = Object.entries(TABLES).map(([key, t]) => `
+    <button class="tab-btn ${key === dbCurrentTable ? 'active' : ''}" data-table="${key}">
+      ${t.emoji} ${t.label}
+    </button>
+  `).join('');
+
+  document.getElementById('tableTabs').onclick = e => {
+    const btn = e.target.closest('.tab-btn');
+    if (!btn) return;
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    dbCurrentTable  = btn.dataset.table;
+    dbCurrentOffset = 0;
+    loadDbTable();
+  };
+
+  loadDbTable();
+}
+
+async function loadDbTable() {
+  const data = await fetch(
+    `/api/db/${dbCurrentTable}?limit=${DB_PAGE_SIZE}&offset=${dbCurrentOffset}`
+  ).then(r => r.json());
+
+  const { rows, total } = data;
+  const colDefs = rows.length
+    ? Object.keys(rows[0]).map(k => ({
+        field: k, headerName: k,
+        width: k === 'payload' ? 300 : k === 'id' || k === 'rev_id' || k === 'data_id' ? 90 : 160,
+        tooltipField: k === 'payload' ? k : undefined,
+      }))
+    : [];
+
+  if (dbGridApi) { dbGridApi.destroy(); dbGridApi = null; }
+  dbGridApi = agGrid.createGrid(document.getElementById('dbGrid'), {
+    columnDefs: colDefs,
+    rowData: rows,
+    defaultColDef: { sortable: true, resizable: true, filter: true },
+    tooltipShowDelay: 300,
+  });
+
+  const page  = Math.floor(dbCurrentOffset / DB_PAGE_SIZE) + 1;
+  const pages = Math.max(1, Math.ceil(total / DB_PAGE_SIZE));
+  document.getElementById('dbPagerInfo').textContent =
+    `${page} / ${pages} 페이지 (전체 ${total.toLocaleString()}건)`;
+  document.getElementById('dbPrevBtn').disabled = dbCurrentOffset === 0;
+  document.getElementById('dbNextBtn').disabled = dbCurrentOffset + DB_PAGE_SIZE >= total;
+}
+
+document.getElementById('dbPrevBtn').onclick = () => {
+  dbCurrentOffset = Math.max(0, dbCurrentOffset - DB_PAGE_SIZE);
+  loadDbTable();
+};
+document.getElementById('dbNextBtn').onclick = () => {
+  dbCurrentOffset += DB_PAGE_SIZE;
+  loadDbTable();
+};
+
+document.getElementById('btnDbViewer').onclick = openDbViewer;
+
+document.getElementById('btnCleanup').onclick = async () => {
+  const btn = document.getElementById('btnCleanup');
+  const msg = document.getElementById('cleanupResult');
+  if (!confirm('어떤 리비전에도 속하지 않는 data_pool 행을 삭제합니다.\n계속할까요?')) return;
+
+  btn.disabled = true; btn.textContent = '⏳ 정리 중...';
+  const r = await fetch('/api/db/cleanup', { method: 'POST' }).then(x => x.json());
+  btn.disabled = false; btn.textContent = '🧹 고아 데이터 정리';
+
+  if (r.removed === 0) {
+    msg.textContent = '정리할 행 없음';
+  } else {
+    msg.textContent = `${r.removed.toLocaleString()}행 삭제 (${r.before.toLocaleString()} → ${r.after.toLocaleString()})`;
+    msg.style.color = '#276749';
+  }
+  // 통계 카드 새로고침
+  const stats = await fetch('/api/db/stats').then(x => x.json());
+  document.getElementById('dbStats').innerHTML = stats.map(s => `
+    <div class="stat-card">
+      <div class="label">${TABLES[s.table]?.emoji || ''} ${s.table}</div>
+      <div class="value">${Number(s.count).toLocaleString()}</div>
+    </div>
+  `).join('');
+};
+document.getElementById('btnCloseDb').onclick  = () => {
+  document.getElementById('dbOverlay').classList.remove('open');
+  if (dbGridApi) { dbGridApi.destroy(); dbGridApi = null; }
+};
+let dbMouseDownOnOverlay = false;
+document.getElementById('dbOverlay').addEventListener('mousedown', e => {
+  dbMouseDownOnOverlay = e.target === e.currentTarget;
+});
+document.getElementById('dbOverlay').addEventListener('mouseup', e => {
+  if (dbMouseDownOnOverlay && e.target === e.currentTarget) {
+    document.getElementById('dbOverlay').classList.remove('open');
+    if (dbGridApi) { dbGridApi.destroy(); dbGridApi = null; }
+  }
+  dbMouseDownOnOverlay = false;
+});
+
+// ── 초기화 ────────────────────────────────────────────────────────────────
+loadRevisions().then(list => {
+  if (list.length) selectRevision(list[0].rev_id, list[0].memo || '');
+});
+</script>
+</body>
+</html>

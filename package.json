@@ -4,15 +4,17 @@
   "description": "Multi-agent based revision processing system",
   "main": "dist/main.js",
   "scripts": {
-    "build": "tsc",
-    "start": "node dist/main.js",
+    "server": "ts-node src/server.ts",
     "dev": "ts-node src/main.ts",
-    "demo": "ts-node src/main.ts"
+    "build": "tsc",
+    "start": "node dist/server.js"
   },
   "dependencies": {
+    "express": "^4.18.2",
     "sql.js": "^1.12.0"
   },
   "devDependencies": {
+    "@types/express": "^4.17.21",
     "@types/sql.js": "^1.4.9",
     "@types/node": "^20.11.0",
     "ts-node": "^10.9.2",
