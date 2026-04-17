@@ -259,6 +259,9 @@
 </div>
 
 <script>
+// ── 배포 경로 자동 감지 (/grid/ 배포 or 로컬 개발 자동 구분) ─────────────
+const API_BASE = window.location.pathname.startsWith('/grid') ? '/grid' : '';
+
 // ── 상태 ──────────────────────────────────────────────────────────────────
 let gridApi    = null;
 let dbGridApi  = null;
@@ -300,7 +303,7 @@ const revColDefs = [
 
 // ── 사이드바 리비전 목록 ──────────────────────────────────────────────────
 async function loadRevisions() {
-  const list = await fetch('/api/revisions').then(r => r.json());
+  const list = await fetch(API_BASE + '/api/revisions').then(r => r.json());
   const container = document.getElementById('revisionList');
 
   if (!list.length) {
@@ -330,7 +333,7 @@ async function loadRevisions() {
     if (delBtn) {
       const revId = Number(delBtn.dataset.delRev);
       if (!confirm(`REV #${revId} 을 삭제할까요?\n(data_pool은 유지됩니다)`)) return;
-      await fetch(`/api/revisions/${revId}`, { method: 'DELETE' });
+      await fetch(API_BASE + `/api/revisions/${revId}`, { method: 'DELETE' });
       if (selectedRevId === revId) {
         selectedRevId = null;
         document.getElementById('mainArea').innerHTML = `
@@ -402,7 +405,7 @@ async function selectRevision(revId, memo, newCount = 0, inheritedCount = 0) {
   const datasource = {
     getRows(params) {
       const limit = params.endRow - params.startRow;
-      fetch(`/api/revisions/${revId}/data?limit=${limit}&offset=${params.startRow}`)
+      fetch(API_BASE + `/api/revisions/${revId}/data?limit=${limit}&offset=${params.startRow}`)
         .then(r => r.json())
         .then(res => {
           params.successCallback(res.rows, res.total);
@@ -487,7 +490,7 @@ document.addEventListener('click', async e => {
     const changes   = Array.from(pendingEdits.values());
     const deleteIds = selected.map(r => r.master_id);
 
-    const resp = await fetch(`/api/revisions/${selectedRevId}/commit`, {
+    const resp = await fetch(API_BASE + `/api/revisions/${selectedRevId}/commit`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({ memo, changes, deleteIds }),
@@ -533,7 +536,7 @@ document.getElementById('btnConfirmCreate').onclick = async () => {
   btn.innerHTML = '<span class="spinner"></span>에이전트 처리 중...';
 
   try {
-    const result = await fetch('/api/revisions', {
+    const result = await fetch(API_BASE + '/api/revisions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ memo, count }),
@@ -561,7 +564,7 @@ async function openDbViewer() {
   dbCurrentOffset = 0;
 
   // 통계 카드
-  const stats = await fetch('/api/db/stats').then(r => r.json());
+  const stats = await fetch(API_BASE + '/api/db/stats').then(r => r.json());
   document.getElementById('dbStats').innerHTML = stats.map(s => `
     <div class="stat-card">
       <div class="label">${TABLES[s.table]?.emoji || ''} ${s.table}</div>
@@ -636,7 +639,7 @@ document.getElementById('btnCleanup').onclick = async () => {
   if (!confirm('어떤 리비전에도 속하지 않는 data_pool 행을 삭제합니다.\n계속할까요?')) return;
 
   btn.disabled = true; btn.textContent = '⏳ 정리 중...';
-  const r = await fetch('/api/db/cleanup', { method: 'POST' }).then(x => x.json());
+  const r = await fetch(API_BASE + '/api/db/cleanup', { method: 'POST' }).then(x => x.json());
   btn.disabled = false; btn.textContent = '🧹 고아 데이터 정리';
 
   if (r.removed === 0) {
@@ -646,7 +649,7 @@ document.getElementById('btnCleanup').onclick = async () => {
     msg.style.color = '#276749';
   }
   // 통계 카드 새로고침
-  const stats = await fetch('/api/db/stats').then(x => x.json());
+  const stats = await fetch(API_BASE + '/api/db/stats').then(x => x.json());
   document.getElementById('dbStats').innerHTML = stats.map(s => `
     <div class="stat-card">
       <div class="label">${TABLES[s.table]?.emoji || ''} ${s.table}</div>

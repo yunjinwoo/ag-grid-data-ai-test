@@ -414,7 +414,7 @@ async function bootstrap() {
     res.json({ rows, total, limit, offset });
   });
 
-  const PORT = 5500;
+  const PORT = Number(process.env.PORT) || 3001;
   app.listen(PORT, () => {
     console.log(`[Server] http://localhost:${PORT}`);
     console.log('[Server] 브라우저를 열어 확인하세요\n');

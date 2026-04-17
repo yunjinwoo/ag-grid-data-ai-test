@@ -14,7 +14,7 @@ ag-grid-data/
 └── package.json      ← express, @types/express 추가
 ```
 
-Express가 `public/` 정적 파일을 서빙 → 백엔드/프론트가 같은 포트(3000)에서 동작.  
+Express가 `public/` 정적 파일을 서빙 → 백엔드/프론트가 같은 포트(3001)에서 동작.  
 AG Grid는 CDN으로 로드하여 별도 빌드 스텝 없음.
 
 ---
@@ -93,5 +93,5 @@ overlay.addEventListener('mouseup',   e => {
 
 ```bash
 npm run server
-# → http://localhost:5500
+# → http://localhost:3001
 ```

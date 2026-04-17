@@ -10,7 +10,7 @@
 ## 실행
 
 ```bash
-npm run server   # http://localhost:3000
+npm run server   # http://localhost:3001
 ```
 
 서버 시작 시 초기 리비전 2개 자동 생성 (500건 + 100건 상속).  

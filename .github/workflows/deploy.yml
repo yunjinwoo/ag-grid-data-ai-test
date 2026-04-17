@@ -1,0 +1,56 @@
+name: Deploy AG Grid Server to iwinv
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 1. 코드를 깃허브 공장으로 가져오기 (Checkout)
+        uses: actions/checkout@v4
+
+      - name: 2. 깃허브 공장에 Node.js 24버전 설치
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: 3. 의존성 설치 및 TypeScript 빌드
+        run: |
+          npm install
+          npm run build
+          # tsc → src/*.ts 를 dist/*.js 로 컴파일
+
+      - name: 4. 빌드 결과물 서버로 전송 (SCP)
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          source: "dist,public,package.json,package-lock.json"
+          target: "~/ag-grid-data"
+          # 주의: revision.db 는 서버 데이터이므로 전송하지 않음
+          # public/ 은 Express가 정적 파일로 서빙 (index.html 포함)
+
+      - name: 5. 서버에서 의존성 설치 및 PM2 재시작
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          script: |
+            cd ~/ag-grid-data
+
+            # 운영 패키지만 설치 (typescript, ts-node 등 devDependencies 제외)
+            npm install --omit=dev
+
+            # 기존 프로세스 제거 후 재시작
+            pm2 delete ag-grid || true
+            PORT=3001 pm2 start dist/server.js --name "ag-grid"
+
+            # 재부팅 시 자동 시작 설정 저장
+            pm2 save
+            pm2 list
