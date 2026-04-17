@@ -59,20 +59,20 @@ async function runPipeline(
   memo: string,
   prevRevId: number | null = null,
 ) {
-  const taskQueue   = new InMemoryQueue<TaskMessage>('task');
+  const taskQueue = new InMemoryQueue<TaskMessage>('task');
   const resultQueue = new InMemoryQueue<ResultMessage>('result');
 
   const coordinator = new CoordinatorAgent(db, taskQueue);
-  const workers     = Array.from({ length: 3 }, (_, i) => new WorkerAgent(i + 1, db, resultQueue));
-  const snapshot    = new SnapshotAgent(db);
-  const validation  = new ValidationAgent(db);
+  const workers = Array.from({ length: 3 }, (_, i) => new WorkerAgent(i + 1, db, resultQueue));
+  const snapshot = new SnapshotAgent(db);
+  const validation = new ValidationAgent(db);
 
   // 1. revision_master 생성
   const revId = await coordinator.createRevision(newData, memo);
 
   // 2. 신규 데이터 Worker 처리
   if (newData.length > 0) {
-    const tasks     = taskQueue.drain();
+    const tasks = taskQueue.drain();
     const chunkSize = Math.max(1, Math.ceil(tasks.length / workers.length));
     await Promise.all(
       workers.map((w, i) =>
@@ -93,7 +93,7 @@ async function runPipeline(
 
   // 4. 검증
   const total = getSnapshotCount(db, revId);
-  const vr    = validation.validate(revId, total);
+  const vr = validation.validate(revId, total);
   vr.passed
     ? coordinator.markCompleted(revId)
     : coordinator.markFailed(revId, vr.details);
@@ -132,16 +132,16 @@ async function runEditPipeline(
     payload: { name: c.name, price: c.price, stock: c.stock, category: c.category },
   }));
 
-  const taskQueue   = new InMemoryQueue<TaskMessage>('task');
+  const taskQueue = new InMemoryQueue<TaskMessage>('task');
   const resultQueue = new InMemoryQueue<ResultMessage>('result');
   const coordinator = new CoordinatorAgent(db, taskQueue);
-  const workers     = Array.from({ length: 3 }, (_, i) => new WorkerAgent(i + 1, db, resultQueue));
-  const snapshot    = new SnapshotAgent(db);
-  const validation  = new ValidationAgent(db);
+  const workers = Array.from({ length: 3 }, (_, i) => new WorkerAgent(i + 1, db, resultQueue));
+  const snapshot = new SnapshotAgent(db);
+  const validation = new ValidationAgent(db);
 
   const revId = await coordinator.createRevision(newData, memo);
 
-  const tasks     = taskQueue.drain();
+  const tasks = taskQueue.drain();
   const chunkSize = Math.max(1, Math.ceil(tasks.length / workers.length));
   await Promise.all(
     workers.map((w, i) =>
@@ -151,11 +151,11 @@ async function runEditPipeline(
   snapshot.insertMappings(resultQueue.drain());
 
   // 수정된 master_id를 제외하고 나머지 상속
-  const modifiedIds  = changes.map(c => c.master_id);
+  const modifiedIds = changes.map(c => c.master_id);
   const inheritedCount = snapshot.inheritExcluding(revId, baseRevId, modifiedIds);
 
   const total = getSnapshotCount(db, revId);
-  const vr    = validation.validate(revId, total);
+  const vr = validation.validate(revId, total);
   vr.passed
     ? coordinator.markCompleted(revId)
     : coordinator.markFailed(revId, vr.details);
@@ -169,17 +169,71 @@ async function runEditPipeline(
   return { revId, passed: vr.passed, modifiedCount: changes.length, inheritedCount, total };
 }
 
+// ── 통합 커밋 파이프라인 ──────────────────────────────────────────────────
+// 수정(changes) + 삭제(deleteIds)를 한 번에 처리 → 새 리비전 1개 생성
+
+async function runCommitPipeline(
+  db: Database,
+  baseRevId: number,
+  changes: ChangeRow[],
+  deleteIds: string[],
+  memo: string,
+) {
+  const newData: DataRow[] = changes.map(c => ({
+    master_id: c.master_id,
+    payload: { name: c.name, price: c.price, stock: c.stock, category: c.category },
+  }));
+
+  const taskQueue = new InMemoryQueue<TaskMessage>('task');
+  const resultQueue = new InMemoryQueue<ResultMessage>('result');
+  const coordinator = new CoordinatorAgent(db, taskQueue);
+  const workers = Array.from({ length: 3 }, (_, i) => new WorkerAgent(i + 1, db, resultQueue));
+  const snapshot = new SnapshotAgent(db);
+  const validation = new ValidationAgent(db);
+
+  const revId = await coordinator.createRevision(newData, memo);
+
+  // 수정된 행 Worker 처리 (변경사항 없으면 스킵)
+  if (newData.length > 0) {
+    const tasks = taskQueue.drain();
+    const chunkSize = Math.max(1, Math.ceil(tasks.length / workers.length));
+    await Promise.all(
+      workers.map((w, i) =>
+        Promise.all(tasks.slice(i * chunkSize, (i + 1) * chunkSize).map(t => w.processTask(t))),
+      ),
+    );
+    snapshot.insertMappings(resultQueue.drain());
+  }
+
+  // 수정된 master_id + 삭제할 master_id 모두 제외하고 상속
+  const excludedIds = [...changes.map(c => c.master_id), ...deleteIds];
+  const inheritedCount = snapshot.inheritExcluding(revId, baseRevId, excludedIds);
+
+  const total = getSnapshotCount(db, revId);
+  const vr = validation.validate(revId, total);
+  vr.passed
+    ? coordinator.markCompleted(revId)
+    : coordinator.markFailed(revId, vr.details);
+
+  db.run(
+    `UPDATE revision_master SET new_count=?, inherited_count=? WHERE rev_id=?`,
+    [changes.length, inheritedCount, revId],
+  );
+  saveDb();
+
+  return { revId, passed: vr.passed, editCount: changes.length, deleteCount: deleteIds.length, inheritedCount, total };
+}
+
 // ── 서버 부트스트랩 ───────────────────────────────────────────────────────
 
 async function bootstrap() {
   const db = await getDb();
 
-  // 초기 리비전 2개 생성 (상속 관계 시연)
-  console.log('[Server] 초기 데이터 생성 중...');
-  const r1 = await runPipeline(db, generateData(500, 0, 0), '초기 상품 데이터 (500건)', null);
-  await runPipeline(db, generateData(100, 500, 77), `2차 신규 상품 추가 (100건)`, r1.revId);
-  // → Rev 2 합계: 500 상속 + 100 신규 = 600건
-  console.log('[Server] 초기 데이터 생성 완료\n');
+  // 초기 리비전 자동 생성 — 필요 시 주석 해제
+  // console.log('[Server] 초기 데이터 생성 중...');
+  // const r1 = await runPipeline(db, generateData(500, 0, 0), '초기 상품 데이터 (500건)', null);
+  // await runPipeline(db, generateData(100, 500, 77), `2차 신규 상품 추가 (100건)`, r1.revId);
+  // console.log('[Server] 초기 데이터 생성 완료\n');
 
   const app = express();
   app.use(express.json());
@@ -190,26 +244,31 @@ async function bootstrap() {
   // 전체 리비전 목록 (스냅샷 건수 포함)
   app.get('/api/revisions', (_req, res) => {
     const revisions = toRows(db.exec('SELECT * FROM revision_master ORDER BY rev_id DESC'));
-    const enriched  = revisions.map(r => ({
+    const enriched = revisions.map(r => ({
       ...r,
       snapshot_count: getSnapshotCount(db, r.rev_id as number),
     }));
     res.json(enriched);
   });
 
-  // 특정 리비전 AG Grid 데이터
+  // 특정 리비전 AG Grid 데이터 (서버사이드 페이지네이션)
   app.get('/api/revisions/:id/data', (req, res) => {
     const revId = Number(req.params.id);
     if (isNaN(revId)) { res.status(400).json({ error: 'invalid id' }); return; }
 
-    const raw  = toRows(
+    const limit = Math.min(Number(req.query.limit) || 200, 1000);
+    const offset = Number(req.query.offset) || 0;
+    const total = getSnapshotCount(db, revId);
+
+    const raw = toRows(
       db.exec(
         `SELECT p.id, p.master_id, p.payload
          FROM revision_snapshot s
          JOIN data_pool p ON s.data_id = p.id
          WHERE s.rev_id = ?
-         ORDER BY p.master_id`,
-        [revId],
+         ORDER BY p.master_id
+         LIMIT ? OFFSET ?`,
+        [revId, limit, offset],
       ),
     );
     const rows = raw.map(r => ({
@@ -217,7 +276,7 @@ async function bootstrap() {
       master_id: r.master_id,
       ...(JSON.parse(r.payload as string) as Record<string, unknown>),
     }));
-    res.json(rows);
+    res.json({ rows, total, limit, offset });
   });
 
   // 새 리비전 생성 — 직전 리비전 데이터 상속 + 신규 데이터 추가
@@ -226,11 +285,11 @@ async function bootstrap() {
       count?: number; memo?: string;
     };
     const count = Math.min(rawCount, 100_000);
-    const prevRevId    = getLatestCompletedRevId(db);
-    const startIndex   = prevRevId !== null ? getSnapshotCount(db, prevRevId) : 0;
-    const seed         = Math.floor(Date.now() % 100_000);
-    const newData      = generateData(count, startIndex, seed);
-    const result       = await runPipeline(db, newData, memo, prevRevId);
+    const prevRevId = getLatestCompletedRevId(db);
+    const startIndex = prevRevId !== null ? getSnapshotCount(db, prevRevId) : 0;
+    const seed = Math.floor(Date.now() % 100_000);
+    const newData = generateData(count, startIndex, seed);
+    const result = await runPipeline(db, newData, memo, prevRevId);
     res.json(result);
   });
 
@@ -262,19 +321,38 @@ async function bootstrap() {
     }
 
     const coordinator = new CoordinatorAgent(db, new InMemoryQueue<TaskMessage>('_'));
-    const snapshot    = new SnapshotAgent(db);
-    const validation  = new ValidationAgent(db);
+    const snapshot = new SnapshotAgent(db);
+    const validation = new ValidationAgent(db);
 
     const revId = await coordinator.createRevision([], memo);
     const inheritedCount = snapshot.inheritExcluding(revId, baseRevId, masterIds);
 
     const total = getSnapshotCount(db, revId);
-    const vr    = validation.validate(revId, total);
+    const vr = validation.validate(revId, total);
     vr.passed ? coordinator.markCompleted(revId) : coordinator.markFailed(revId, vr.details);
     db.run(`UPDATE revision_master SET new_count=0, inherited_count=? WHERE rev_id=?`, [inheritedCount, revId]);
     saveDb();
 
     res.json({ revId, total, deletedCount: masterIds.length, inheritedCount });
+  });
+
+  // 수정 + 삭제 통합 커밋 → 새 리비전 1개 생성
+  app.post('/api/revisions/:id/commit', async (req, res) => {
+    const baseRevId = Number(req.params.id);
+    if (isNaN(baseRevId)) { res.status(400).json({ error: 'invalid id' }); return; }
+
+    const { memo = '변경사항 저장', changes = [], deleteIds = [] } = req.body as {
+      memo?: string;
+      changes?: ChangeRow[];
+      deleteIds?: string[];
+    };
+
+    if (!changes.length && !deleteIds.length) {
+      res.status(400).json({ error: '변경사항이 없습니다' }); return;
+    }
+
+    const result = await runCommitPipeline(db, baseRevId, changes, deleteIds, memo);
+    res.json(result);
   });
 
   // 리비전 삭제 (snapshot + master 제거, data_pool은 유지)
@@ -315,7 +393,7 @@ async function bootstrap() {
       WHERE id NOT IN (SELECT DISTINCT data_id FROM revision_snapshot)
     `);
 
-    const after   = (db.exec('SELECT COUNT(*) FROM data_pool')[0].values[0][0]) as number;
+    const after = (db.exec('SELECT COUNT(*) FROM data_pool')[0].values[0][0]) as number;
     const removed = before - after;
     saveDb();
 
@@ -329,14 +407,14 @@ async function bootstrap() {
     if (!(ALLOWED_TABLES as readonly string[]).includes(table)) {
       res.status(400).json({ error: 'not allowed' }); return;
     }
-    const limit  = Math.min(Number(req.query.limit)  || 100, 500);
+    const limit = Math.min(Number(req.query.limit) || 100, 500);
     const offset = Number(req.query.offset) || 0;
-    const rows   = toRows(db.exec(`SELECT * FROM ${table} LIMIT ? OFFSET ?`, [limit, offset]));
-    const total  = (db.exec(`SELECT COUNT(*) FROM ${table}`)[0].values[0][0]) as number;
+    const rows = toRows(db.exec(`SELECT * FROM ${table} LIMIT ? OFFSET ?`, [limit, offset]));
+    const total = (db.exec(`SELECT COUNT(*) FROM ${table}`)[0].values[0][0]) as number;
     res.json({ rows, total, limit, offset });
   });
 
-  const PORT = 3000;
+  const PORT = 5500;
   app.listen(PORT, () => {
     console.log(`[Server] http://localhost:${PORT}`);
     console.log('[Server] 브라우저를 열어 확인하세요\n');

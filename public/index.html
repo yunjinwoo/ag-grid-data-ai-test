@@ -352,13 +352,13 @@ async function loadRevisions() {
   return list;
 }
 
-// ── 리비전 선택 → 그리드 표시 ────────────────────────────────────────────
+// ── 리비전 선택 → 그리드 표시 (Infinite Row Model — 서버사이드 페이지네이션) ─
 async function selectRevision(revId, memo, newCount = 0, inheritedCount = 0) {
   selectedRevId = revId;
   if (gridApi) { gridApi.destroy(); gridApi = null; }
 
-  const newChip      = newCount      > 0 ? `<span class="chip chip-new">신규 ${newCount.toLocaleString()}건</span>`      : '';
-  const inheritChip  = inheritedCount > 0 ? `<span class="chip chip-inherit">상속 ${inheritedCount.toLocaleString()}건</span>` : '';
+  const newChip     = newCount      > 0 ? `<span class="chip chip-new">신규 ${newCount.toLocaleString()}건</span>`      : '';
+  const inheritChip = inheritedCount > 0 ? `<span class="chip chip-inherit">상속 ${inheritedCount.toLocaleString()}건</span>` : '';
 
   document.getElementById('mainArea').innerHTML = `
     <div class="toolbar">
@@ -368,13 +368,9 @@ async function selectRevision(revId, memo, newCount = 0, inheritedCount = 0) {
       ${newChip}
       ${inheritChip}
       <span class="spacer"></span>
-      <span id="delRowBadge" style="display:none;background:#fff5f5;color:#c53030;font-size:11px;padding:3px 9px;border-radius:9999px;font-weight:700;"></span>
-      <button id="btnDeleteRows" style="display:none;padding:6px 14px;background:#e53e3e;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">
-        🗑 삭제 → 새 리비전
-      </button>
-      <span id="editBadge" style="display:none" class="chip" style="background:#fed7d7;color:#822727"></span>
-      <button id="btnSaveEdit" style="display:none;padding:6px 14px;background:#38a169;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">
-        💾 저장 → 새 리비전
+      <span id="commitBadge" style="display:none;font-size:11px;padding:3px 10px;border-radius:9999px;font-weight:700;background:#fef3c7;color:#92400e;"></span>
+      <button id="btnCommit" style="display:none;padding:6px 16px;background:#3182ce;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">
+        ✅ 적용 → 새 리비전
       </button>
     </div>
     <div class="grid-wrap">
@@ -386,109 +382,128 @@ async function selectRevision(revId, memo, newCount = 0, inheritedCount = 0) {
 
   gridApi = agGrid.createGrid(document.getElementById('myGrid'), {
     columnDefs: revColDefs,
-    rowData: [],
-    defaultColDef: { sortable: true, filter: true, resizable: true },
-    animateRows: true,
+    rowModelType: 'infinite',
+    cacheBlockSize: 200,
+    maxBlocksInCache: 5,
     pagination: true,
     paginationPageSize: 100,
+    paginationPageSizeSelector: false,   // 내장 page size 드롭다운 제거
+    rowSelection: 'multiple',
+    suppressRowClickSelection: true,   // 행 클릭 시 선택 효과 제거 (체크박스만 선택)
+    defaultColDef: { resizable: true },
     onCellValueChanged: e => {
       pendingEdits.set(e.data.master_id, { ...e.data });
-      updateEditBar();
+      updateActionBar();
     },
-    onSelectionChanged: () => {
-      const n = gridApi ? gridApi.getSelectedRows().length : 0;
-      const badge = document.getElementById('delRowBadge');
-      const btn   = document.getElementById('btnDeleteRows');
-      if (!badge || !btn) return;
-      if (n === 0) { badge.style.display = 'none'; btn.style.display = 'none'; }
-      else { badge.textContent = `☑️ ${n.toLocaleString()}건 선택`; badge.style.display = ''; btn.style.display = ''; }
-    },
+    onSelectionChanged: () => updateActionBar(),
   });
 
-  await loadRevisions();
+  // 그리드 생성 후 datasource 설정 (async getRows 대신 .then() 사용 — AG Grid 호환성)
+  const datasource = {
+    getRows(params) {
+      const limit = params.endRow - params.startRow;
+      fetch(`/api/revisions/${revId}/data?limit=${limit}&offset=${params.startRow}`)
+        .then(r => r.json())
+        .then(res => {
+          params.successCallback(res.rows, res.total);
+          const chip = document.getElementById('chipTotal');
+          if (chip && res.total != null) chip.textContent = `총 ${res.total.toLocaleString()}건`;
+        })
+        .catch(() => params.failCallback());
+    },
+  };
+  gridApi.setGridOption('datasource', datasource);
 
-  const data = await fetch(`/api/revisions/${revId}/data`).then(r => r.json());
-  gridApi.setGridOption('rowData', data);
-  document.getElementById('chipTotal').textContent = `총 ${data.length.toLocaleString()}건`;
+  // AG Grid 페이지네이션 바 안에 page size 셀렉터 주입
+  setTimeout(() => {
+    const pagingPanel = document.querySelector('#myGrid .ag-paging-panel');
+    if (pagingPanel && !pagingPanel.querySelector('.custom-page-size')) {
+      const wrap = document.createElement('div');
+      wrap.className = 'custom-page-size';
+      wrap.style.cssText = 'display:flex;align-items:center;gap:5px;font-size:12px;color:#666;margin-right:auto;';
+      wrap.innerHTML = `
+        행 수
+        <select style="padding:2px 6px;border:1px solid #dde;border-radius:4px;font-size:12px;cursor:pointer;">
+          <option value="50">50</option>
+          <option value="100" selected>100</option>
+          <option value="200">200</option>
+          <option value="500">500</option>
+        </select>
+      `;
+      wrap.querySelector('select').onchange = e => {
+        gridApi.setGridOption('paginationPageSize', Number(e.target.value));
+      };
+      pagingPanel.prepend(wrap);
+    }
+  }, 0);
+
+  await loadRevisions();
 }
 
-// ── 수정 배지 업데이트 ────────────────────────────────────────────────────
-function updateEditBar() {
-  const badge  = document.getElementById('editBadge');
-  const btn    = document.getElementById('btnSaveEdit');
+// ── 커밋 배지 업데이트 (수정 + 삭제 통합) ───────────────────────────────
+function updateActionBar() {
+  const badge    = document.getElementById('commitBadge');
+  const btn      = document.getElementById('btnCommit');
   if (!badge || !btn) return;
-  const count = pendingEdits.size;
-  if (count === 0) {
+
+  const editCount = pendingEdits.size;
+  const selCount  = gridApi ? gridApi.getSelectedRows().length : 0;
+
+  if (editCount === 0 && selCount === 0) {
     badge.style.display = 'none';
     btn.style.display   = 'none';
-  } else {
-    badge.style.display      = '';
-    badge.style.background   = '#fed7d7';
-    badge.style.color        = '#822727';
-    badge.textContent        = `✏️ 수정 ${count}건`;
-    btn.style.display        = '';
+    return;
   }
+
+  const parts = [];
+  if (editCount > 0) parts.push(`✏️ 수정 ${editCount}건`);
+  if (selCount  > 0) parts.push(`🗑 삭제 ${selCount}건`);
+  badge.textContent   = parts.join('  ·  ');
+  badge.style.display = '';
+  btn.style.display   = '';
 }
 
-// 행 삭제 버튼
+// ── 커밋 버튼 — 수정 + 삭제 한 번에 처리 ────────────────────────────────
 document.addEventListener('click', async e => {
-  if (!e.target.closest('#btnDeleteRows')) return;
-  const selected = gridApi ? gridApi.getSelectedRows() : [];
-  if (!selected.length) return;
+  if (!e.target.closest('#btnCommit')) return;
 
-  const memo = prompt(
-    `선택한 ${selected.length}건을 삭제하고 새 리비전을 생성합니다.\n메모를 입력하세요:`,
-    `행 삭제 (${selected.length}건)`,
-  );
+  const editCount = pendingEdits.size;
+  const selected  = gridApi ? gridApi.getSelectedRows() : [];
+  if (editCount === 0 && !selected.length) return;
+
+  const parts = [];
+  if (editCount > 0)    parts.push(`수정 ${editCount}건`);
+  if (selected.length)  parts.push(`삭제 ${selected.length}건`);
+  const defaultMemo = parts.join(', ');
+
+  const memo = prompt('새 리비전 메모를 입력하세요:', defaultMemo);
   if (memo === null) return;
 
-  const btn = document.getElementById('btnDeleteRows');
-  btn.disabled = true; btn.textContent = '⏳ 처리 중...';
-
-  try {
-    const masterIds = selected.map(r => r.master_id);
-    const result = await fetch(`/api/revisions/${selectedRevId}/delete-rows`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ memo, masterIds }),
-    }).then(r => r.json());
-
-    await selectRevision(result.revId, memo, 0, result.inheritedCount);
-  } catch (err) {
-    alert('오류: ' + err.message);
-    btn.disabled = false; btn.textContent = '🗑 삭제 → 새 리비전';
-  }
-});
-
-// 저장 버튼 — 수정 내역을 서버로 전송하여 새 리비전 생성
-document.addEventListener('click', async e => {
-  if (!e.target.closest('#btnSaveEdit')) return;
-  if (pendingEdits.size === 0) return;
-
-  const memo = prompt(
-    `수정 ${pendingEdits.size}건을 새 리비전으로 저장합니다.\n메모를 입력하세요:`,
-    `상품 정보 수정 (${pendingEdits.size}건)`,
-  );
-  if (memo === null) return; // 취소
-
-  const btn = document.getElementById('btnSaveEdit');
-  btn.disabled  = true;
+  const btn = document.getElementById('btnCommit');
+  btn.disabled    = true;
   btn.textContent = '⏳ 처리 중...';
 
   try {
-    const changes = Array.from(pendingEdits.values());
-    const result  = await fetch(`/api/revisions/${selectedRevId}/edit`, {
+    const changes   = Array.from(pendingEdits.values());
+    const deleteIds = selected.map(r => r.master_id);
+
+    const resp = await fetch(`/api/revisions/${selectedRevId}/commit`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ memo, changes }),
-    }).then(r => r.json());
+      body:    JSON.stringify({ memo, changes, deleteIds }),
+    });
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(`서버 오류 (${resp.status}): ${text.slice(0, 200)}`);
+    }
+    const result = await resp.json();
 
     pendingEdits.clear();
-    await selectRevision(result.revId, memo, 0, result.inheritedCount);
+    await selectRevision(result.revId, memo, result.editCount, result.inheritedCount);
   } catch (err) {
-    alert('저장 오류: ' + err.message);
+    alert('오류: ' + err.message);
     btn.disabled    = false;
-    btn.textContent = '💾 저장 → 새 리비전';
+    btn.textContent = '✅ 적용 → 새 리비전';
   }
 });
 

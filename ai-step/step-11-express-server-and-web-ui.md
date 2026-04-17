@@ -93,5 +93,5 @@ overlay.addEventListener('mouseup',   e => {
 
 ```bash
 npm run server
-# → http://localhost:3000
+# → http://localhost:5500
 ```
