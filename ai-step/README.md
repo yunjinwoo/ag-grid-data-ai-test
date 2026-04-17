@@ -21,3 +21,6 @@
 | 15 | [step-15-deletion-features.md](step-15-deletion-features.md) | 리비전 삭제 · 행 삭제 · 고아 data_pool 정리 |
 | 16 | [step-16-performance-limits-and-analysis.md](step-16-performance-limits-and-analysis.md) | 성능 한계 분석 및 향후 PostgreSQL 마이그레이션 방향 |
 | 17 | [step-17-wasm-memory-fix.md](step-17-wasm-memory-fix.md) | WASM 메모리 한계 해결 — 힙 확장 + 배치 상속 + 청크 축소 |
+| 18 | [step-18-server-side-pagination.md](step-18-server-side-pagination.md) | AG Grid Infinite Row Model — 서버사이드 페이지네이션 |
+| 19 | [step-19-unified-commit-button.md](step-19-unified-commit-button.md) | 수정 + 삭제 통합 커밋 버튼 → 리비전 1개 생성 |
+| 20 | [step-20-vps-deployment.md](step-20-vps-deployment.md) | VPS 배포 — nginx + GitHub Actions + PM2 + API_BASE |
