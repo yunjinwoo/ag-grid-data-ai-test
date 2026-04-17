@@ -20,3 +20,4 @@
 | 14 | [step-14-cell-edit-save-as-revision.md](step-14-cell-edit-save-as-revision.md) | 셀 편집 → 새 리비전 저장 (inheritExcluding) |
 | 15 | [step-15-deletion-features.md](step-15-deletion-features.md) | 리비전 삭제 · 행 삭제 · 고아 data_pool 정리 |
 | 16 | [step-16-performance-limits-and-analysis.md](step-16-performance-limits-and-analysis.md) | 성능 한계 분석 및 향후 PostgreSQL 마이그레이션 방향 |
+| 17 | [step-17-wasm-memory-fix.md](step-17-wasm-memory-fix.md) | WASM 메모리 한계 해결 — 힙 확장 + 배치 상속 + 청크 축소 |
